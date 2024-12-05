@@ -2,9 +2,9 @@ from toga.style import Pack
 from toga.style.pack import COLUMN, ROW
 from toga.widgets import button, label, textinput, selection
 
-from database import ExpenseTracker
+from src.expensetracker.database import ExpenseTracker
 
-from trips import TripListScreen
+from src.expensetracker.trips import TripListScreen
 
 
 class AddFamilyScreen:

@@ -3,50 +3,118 @@ import os
 from datetime import datetime
 
 
+
+import os
+
+import os
+
 class ExpenseTracker:
-    def __init__(self, db_name):
-        self.conn = sqlite3.connect(db_name)
-        self.cursor = self.conn.cursor()
-        self.create_trips_table()
-        self.create_expenses_table()
-        self.create_family_details_table()
-        self.create_archived_trips_table()
-        self.db_path = os.path.join(self.app.paths.app, "expensetracker.db")
-
-    def connect_db(self):
+    def __init__(self, app=None, db_path=None):
         try:
-            conn = sqlite3.connect(self.db_path)
-            return conn
-        except sqlite3.Error as e:
-            print(f"Database connection error: {e}")
-            return None
+            # Use app.paths.app if app is provided, otherwise use db_path
+            if app:
+                self.app = app
+                self.db_path = os.path.join(app.paths.app, "expensetracker.db")
+            elif db_path:
+                self.db_path = db_path
+            else:
+                raise ValueError("Either 'app' or 'db_path' must be provided to initialize ExpenseTracker.")
 
-    def get_db_path(self):
-        if self.app.platform == "android":
-            # For Android, use the app's private storage
-            from android.storage import app_storage_path
-            db_dir = app_storage_path()
-            if not os.path.exists(db_dir):
-                os.makedirs(db_dir)
-            return os.path.join(db_dir, 'expensetracker.db')
-        else:
-            # For desktop platforms
-            return 'expensetracker.db'
+            print(f"Initializing database at: {self.db_path}")
+
+            # Ensure the directory exists
+            os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
+
+            # Connect to the database
+            self.conn = sqlite3.connect(self.db_path)
+            self.cursor = self.conn.cursor()
+
+            # Create tables
+            self.create_trips_table()
+            self.create_expenses_table()
+            self.create_family_details_table()
+            self.create_archived_trips_table()
+
+            print("Database initialized successfully")
+
+        except Exception as e:
+            print(f"Database initialization error: {e}")
+            raise
+
+
+
+
+
 
     def create_trips_table(self):
-        self.cursor.execute('''    
-      CREATE TABLE IF NOT EXISTS trips (    
-       id INTEGER PRIMARY KEY,    
-       name TEXT,    
-       start_date DATE,    
-       trip_type TEXT,   
-       family_name TEXT,   
-       individual_name TEXT,    
-       num_family_members INTEGER,    
-       status TEXT DEFAULT 'INACTIVE'  
-      );    
-      ''')
-        self.conn.commit()
+        try:
+            # SQL query formatted for better readability
+            create_table_query = '''
+            CREATE TABLE IF NOT EXISTS trips (
+                id INTEGER PRIMARY KEY,
+                name TEXT,
+                start_date DATE,
+                trip_type TEXT,
+                family_name TEXT,
+                individual_name TEXT,
+                num_family_members INTEGER,
+                status TEXT DEFAULT 'INACTIVE'
+            )
+            '''
+
+            # Execute the create table query
+            self.cursor.execute(create_table_query)
+            self.conn.commit()
+            print("Trips table created successfully")
+
+            # Verify table creation by trying to select from it
+            self.cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='trips'")
+            if self.cursor.fetchone():
+                print("Verified: trips table exists")
+
+        except sqlite3.Error as e:
+            print(f"Error creating trips table: {str(e)}")
+            # Optionally show error in UI if available
+            if hasattr(self, 'main_window'):
+                self.main_window.info_dialog(
+                    "Database Error",
+                    f"Failed to create trips table: {str(e)}"
+                )
+            raise  # Re-raise the exception for higher-level handling
+
+        except Exception as e:
+            print(f"Unexpected error creating trips table: {str(e)}")
+            raise
+
+    def initialize_database(self):
+        try:
+            self.conn = sqlite3.connect(self.db_path)
+            self.cursor = self.conn.cursor()
+            self.create_trips_table()
+            print(f"Database initialized at: {self.db_path}")
+        except Exception as e:
+            print(f"Database initialization failed: {str(e)}")
+            raise
+
+    def get_connection(self):
+        """Get the current database connection or create a new one if needed"""
+        try:
+            # Test if connection is active
+            self.conn.cursor()
+            return self.conn
+        except (sqlite3.Error, AttributeError):
+            # Reconnect if connection is closed or invalid
+            self.conn = sqlite3.connect(self.db_path)
+            return self.conn
+
+    def __del__(self):
+        """Ensure database connection is properly closed"""
+        try:
+            if hasattr(self, 'conn') and self.conn:
+                self.conn.close()
+                print("Database connection closed")
+        except Exception as e:
+            print(f"Error closing database connection: {e}")
 
     def create_archived_trips_table(self):
         self.cursor.execute('''  
@@ -60,80 +128,134 @@ class ExpenseTracker:
         self.conn.commit()
 
     def archive_trip(self):
-        self.cursor.execute("SELECT name FROM trips WHERE id = (SELECT MAX(id) FROM trips)")
-        result = self.cursor.fetchone()
-        trip_name = result[0] if result else "Unnamed Trip"
+        try:
+            # Get the trip name
+            self.cursor.execute("SELECT name FROM trips WHERE id = (SELECT MAX(id) FROM trips)")
+            result = self.cursor.fetchone()
+            trip_name = result[0] if result else "Unnamed Trip"
 
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        archive_path = f"trip_archive_{timestamp}.db"
+            # Create archives directory in app's private storage
+            archives_dir = os.path.join(self.app.paths.app, "archives")
+            if not os.path.exists(archives_dir):
+                os.makedirs(archives_dir)
 
-        archive_conn = sqlite3.connect(archive_path)
-        archive_cur = archive_conn.cursor()
+            # Create archive file path
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            archive_filename = f"trip_archive_{timestamp}.db"
+            archive_path = os.path.join(archives_dir, archive_filename)
 
-        archive_cur.executescript('''  
-        CREATE TABLE IF NOT EXISTS trips (  
-           id INTEGER PRIMARY KEY,  
-           name TEXT,  
-           start_date DATE,  
-           trip_type TEXT,  
-           family_name TEXT,  
-           individual_name TEXT,  
-           num_family_members INTEGER,  
-           status TEXT DEFAULT 'INACTIVE'  
-        );  
+            print(f"Creating archive at: {archive_path}")
 
-        CREATE TABLE IF NOT EXISTS expenses (  
-           id INTEGER PRIMARY KEY,  
-           trip_id INTEGER,  
-           name TEXT,  
-           amount REAL,  
-           date DATE,  
-           trip_type TEXT,  
-           payer_id INTEGER,  
-           FOREIGN KEY (trip_id) REFERENCES trips (id)  
-        );  
+            try:
+                # Create and initialize archive database
+                archive_conn = sqlite3.connect(archive_path)
+                archive_cur = archive_conn.cursor()
 
-        CREATE TABLE IF NOT EXISTS family_details (  
-           id INTEGER PRIMARY KEY,  
-           name TEXT,  
-           members INTEGER  
-        );  
-      ''')
+                # Enable foreign keys in the archive database
+                archive_cur.execute("PRAGMA foreign_keys = ON")
 
-        self.cursor.execute("SELECT * FROM trips")
-        trips = self.cursor.fetchall()
-        for trip in trips:
-            archive_cur.execute('''  
-           INSERT INTO trips (id, name, start_date, trip_type, family_name, individual_name, num_family_members, status)  
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)  
-        ''', trip)
+                # Create tables in archive database
+                archive_cur.executescript('''  
+                    CREATE TABLE IF NOT EXISTS trips (  
+                        id INTEGER PRIMARY KEY,  
+                        name TEXT,  
+                        start_date DATE,  
+                        trip_type TEXT,  
+                        family_name TEXT,  
+                        individual_name TEXT,  
+                        num_family_members INTEGER,  
+                        status TEXT DEFAULT 'INACTIVE'  
+                    );  
 
-        self.cursor.execute("SELECT * FROM expenses")
-        expenses = self.cursor.fetchall()
-        for expense in expenses:
-            archive_cur.execute('''  
-           INSERT INTO expenses (id, trip_id, name, amount, date, trip_type, payer_id)  
-           VALUES (?, ?, ?, ?, ?, ?, ?)  
-        ''', expense)
+                    CREATE TABLE IF NOT EXISTS expenses (  
+                        id INTEGER PRIMARY KEY,  
+                        trip_id INTEGER,  
+                        name TEXT,  
+                        amount REAL,  
+                        date DATE,  
+                        trip_type TEXT,  
+                        payer_id INTEGER,  
+                        FOREIGN KEY (trip_id) REFERENCES trips (id)  
+                    );  
 
-        self.cursor.execute("SELECT id, family_name, num_members FROM family_details")
-        family_details = self.cursor.fetchall()
-        for family in family_details:
-            archive_cur.execute('''  
-           INSERT INTO family_details (id, name, members)  
-           VALUES (?, ?, ?)  
-        ''', family)
+                    CREATE TABLE IF NOT EXISTS family_details (  
+                        id INTEGER PRIMARY KEY,  
+                        name TEXT,  
+                        members INTEGER  
+                    );  
+                ''')
 
-        archived_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        self.cursor.execute('''  
-        INSERT INTO archived_trips (trip_name, archive_path, archived_date)  
-        VALUES (?, ?, ?)  
-      ''', (trip_name, archive_path, archived_date))
-        self.conn.commit()
+                # Begin transaction for data copy
+                archive_conn.execute('BEGIN TRANSACTION')
 
-        archive_conn.commit()
-        archive_conn.close()
-        return archive_path
+                try:
+                    # Copy trips data
+                    print("Copying trips data...")
+                    self.cursor.execute("SELECT * FROM trips")
+                    trips = self.cursor.fetchall()
+                    for trip in trips:
+                        archive_cur.execute('''  
+                            INSERT INTO trips (id, name, start_date, trip_type, family_name, 
+                                            individual_name, num_family_members, status)  
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)  
+                        ''', trip)
+
+                    # Copy expenses data
+                    print("Copying expenses data...")
+                    self.cursor.execute("SELECT * FROM expenses")
+                    expenses = self.cursor.fetchall()
+                    for expense in expenses:
+                        archive_cur.execute('''  
+                            INSERT INTO expenses (id, trip_id, name, amount, date, trip_type, payer_id)  
+                            VALUES (?, ?, ?, ?, ?, ?, ?)  
+                        ''', expense)
+
+                    # Copy family details data
+                    print("Copying family details...")
+                    self.cursor.execute("SELECT id, family_name, num_members FROM family_details")
+                    family_details = self.cursor.fetchall()
+                    for family in family_details:
+                        archive_cur.execute('''  
+                            INSERT INTO family_details (id, name, members)  
+                            VALUES (?, ?, ?)  
+                        ''', family)
+
+                    # Record archive in main database
+                    archived_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    self.cursor.execute('''  
+                        INSERT INTO archived_trips (trip_name, archive_path, archived_date)  
+                        VALUES (?, ?, ?)  
+                    ''', (trip_name, archive_filename, archived_date))
+
+                    # Commit both transactions
+                    archive_conn.commit()
+                    self.conn.commit()
+                    print("Archive created successfully")
+
+                except sqlite3.Error as e:
+                    # Rollback both transactions on error
+                    archive_conn.rollback()
+                    self.conn.rollback()
+                    print(f"Error during data copy: {e}")
+                    raise
+
+            except sqlite3.Error as e:
+                print(f"Database error during archiving: {e}")
+                raise
+            finally:
+                # Ensure archive connection is closed
+                if 'archive_conn' in locals():
+                    archive_conn.close()
+
+            return archive_filename  # Return just the filename, not the full path
+
+        except Exception as e:
+            print(f"Error creating archive: {e}")
+            raise
+
+    def get_archive_path(self, archive_filename):
+        """Helper method to get the full path of an archive file"""
+        return os.path.join(self.app.paths.app, "archives", archive_filename)
 
     def get_active_trip(self):
         self.cursor.execute('SELECT * FROM trips  WHERE status = "active"')
@@ -327,11 +449,18 @@ class ExpenseTracker:
         return self.cursor.fetchone()
 
     def save_expense(self, trip_id, name, amount, date, payer_id):
-        self.cursor.execute('''  
-        INSERT INTO expenses (trip_id, name, amount, date, payer_id)  
-        VALUES (?, ?, ?, ?, ?)  
-      ''', (trip_id, name, amount, date, payer_id))
-        self.conn.commit()
+        try:
+            self.conn.execute('BEGIN TRANSACTION')
+            self.cursor.execute('''
+                INSERT INTO expenses (trip_id, name, amount, date, payer_id)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (trip_id, name, amount, date, payer_id))
+            self.conn.commit()
+            return True
+        except sqlite3.Error as e:
+            self.conn.rollback()
+            print(f"Error saving expense: {e}")
+            return False
 
     def expense(self, trip_id):
         self.cursor.execute('''   
@@ -342,16 +471,30 @@ class ExpenseTracker:
       ''', (trip_id,))
         return self.cursor.fetchall()
 
+    def check_database_integrity(self):
+        try:
+            self.cursor.execute("PRAGMA integrity_check")
+            result = self.cursor.fetchone()
+            return result[0] == "ok"
+        except sqlite3.Error as e:
+            print(f"Database integrity check failed: {e}")
+            return False
+
     def save_trip(self, trip_name, trip_start_date, trip_type, family_name, individual_name, num_family_members):
-        if family_name is None:
-            self.cursor.execute(
-                'INSERT INTO trips (name, start_date, trip_type, individual_name, num_family_members, status) VALUES (?, ?, ?, ?, ?, "active")',
-                (trip_name, trip_start_date, trip_type, individual_name, num_family_members))
-        else:
-            self.cursor.execute(
-                'INSERT INTO trips (name, start_date, trip_type, family_name, individual_name, num_family_members, status) VALUES (?, ?, ?, ?, ?, ?, "active")',
-                (trip_name, trip_start_date, trip_type, family_name, individual_name, num_family_members))
-        self.conn.commit()
+        try:
+            if family_name is None:
+                self.cursor.execute(
+                    'INSERT INTO trips (name, start_date, trip_type, individual_name, num_family_members, status) VALUES (?, ?, ?, ?, ?, "active")',
+                    (trip_name, trip_start_date, trip_type, individual_name, num_family_members))
+            else:
+                self.cursor.execute(
+                    'INSERT INTO trips (name, start_date, trip_type, family_name, individual_name, num_family_members, status) VALUES (?, ?, ?, ?, ?, ?, "active")',
+                    (trip_name, trip_start_date, trip_type, family_name, individual_name, num_family_members))
+            self.conn.commit()
+            return True
+        except sqlite3.Error as e:
+            print(f"Error saving trip: {e}")
+            return False
 
     def delete_family_record(self, family_id):
         self.cursor.execute("DELETE FROM family_details WHERE id=?", (family_id,))

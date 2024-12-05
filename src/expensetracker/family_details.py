@@ -1,9 +1,8 @@
 from toga.style import Pack
-from toga.style.pack import COLUMN, ROW
+from toga.style.pack import COLUMN
 from toga.widgets import button, label, textinput
 
-from database import ExpenseTracker
-from main import MainScreen
+from .database import ExpenseTracker
 
 
 class FamilyDetailsScreen:
@@ -11,6 +10,7 @@ class FamilyDetailsScreen:
         self.app = app
         self.name = name
         self.layout = Pack(direction=COLUMN)
+        self.database = app.database
 
         header_label = label.Label('Family Details', style=Pack(text_align=COLUMN, padding_top=50))
         self.layout.add(header_label)

@@ -2,40 +2,47 @@ from toga import App as Application, MainWindow
 from toga.style import Pack
 from toga.style.pack import COLUMN, ROW
 from toga.widgets import button, label, box
+import toga
+from .expense_entry import ExpenseEntryScreen
 
-from expense_entry import ExpenseEntryScreen
-from reporting import ReportingScreen
-from settlement_details import SettlementDetailsPage
-from settlement import SettlementScreen
-from trips import TripListScreen, CreateTripScreen
-from trip_history import TripHistoryScreen
-from add_family import AddFamilyScreen
+from .settlement_details import SettlementDetailsPage
+from .settlement import SettlementScreen
+from .trips import TripListScreen, CreateTripScreen
+from .trip_history import TripHistoryScreen
+from .reporting import  ReportingScreen
+
 
 
 class MainScreen:
     def __init__(self, name, app):
         self.app = app
         self.name = name
+        self.database = app.database
 
         # Main layout
-        self.layout = box.Box(style=Pack(direction=COLUMN, padding=20))
+        self.layout = toga.Box(style=Pack(direction=COLUMN))
 
         # Header
-        header_label = label.Label(
+        header_label = toga.Label(
             'Expense Tracker',
             style=Pack(
                 text_align='center',
-                padding_bottom=20,
-                font_size=24,
+                padding_bottom=10,
+                font_size=20,
                 font_weight='bold'
             )
         )
         self.layout.add(header_label)
 
-        # Tab buttons container
-        tab_buttons = box.Box(style=Pack(direction=ROW, padding=10))
+        # Create two rows for tabs
+        tabs_container = toga.Box(style=Pack(direction=COLUMN, padding=2))
 
-        # Add tab buttons
+        # First row of tabs
+        first_row = toga.Box(style=Pack(direction=ROW, padding=2))
+        # Second row of tabs
+        second_row = toga.Box(style=Pack(direction=ROW, padding=2))
+
+        # Define all tabs
         tabs = [
             ('Current Trip', self.show_current_trip),
             ('Expenses', self.show_expenses),
@@ -46,27 +53,46 @@ class MainScreen:
             ('Reports', self.show_reports)
         ]
 
-        for tab_name, tab_handler in tabs:
-            tab_button = button.Button(
+        # Split tabs between rows (4 in first row, 3 in second)
+        for i, (tab_name, tab_handler) in enumerate(tabs):
+            tab_button = toga.Button(
                 tab_name,
                 on_press=tab_handler,
-                style=Pack(padding=5, flex=1)
+                style=Pack(
+                    padding=(2, 2),  # Reduced padding
+                    width=100,  # Reduced width
+                    height=35,  # Reduced height
+                    font_size=12  # Smaller font size
+                )
             )
-            tab_buttons.add(tab_button)
+            if i < 4:  # First 4 tabs go to first row
+                first_row.add(tab_button)
+            else:  # Remaining tabs go to second row
+                second_row.add(tab_button)
 
-        self.layout.add(tab_buttons)
+        # Add both rows to the tabs container
+        tabs_container.add(first_row)
+        tabs_container.add(second_row)
+        self.layout.add(tabs_container)
 
         # Content area
-        self.content_area = box.Box(style=Pack(direction=COLUMN, padding=20, flex=1))
+        self.content_area = toga.Box(
+            style=Pack(
+                direction=COLUMN,
+                padding=5,
+                flex=1
+            )
+        )
         self.layout.add(self.content_area)
 
         # Footer
-        footer_label = label.Label(
+        footer_label = toga.Label(
             'Developed by GDN',
             style=Pack(
                 text_align='center',
-                padding_top=20,
-                font_size=12
+                padding_top=5,
+                padding_bottom=5,
+                font_size=10
             )
         )
         self.layout.add(footer_label)
@@ -101,9 +127,23 @@ class MainScreen:
         self.content_area.add(default_content)
 
     def show_current_trip(self, sender):
+        """Display the Current Trip screen."""
         self.clear_content_area()
-        current_trip_screen = TripListScreen('trip_list', self.app, self.layout)
-        self.content_area.add(current_trip_screen.layout)
+        try:
+            # Initialize the TripListScreen
+            current_trip_screen = TripListScreen('trip_list', self.app, self.layout)
+
+            # Add the scrollable content to the content area
+            self.content_area.add(current_trip_screen.scroll_container)  # Use scroll_container instead of layout
+        except Exception as e:
+            # Handle errors and display a message
+            error_box = toga.Box(style=Pack(direction=COLUMN, padding=20))
+            error_label = toga.Label(
+                f"Error loading Current Trip screen: {str(e)}",
+                style=Pack(padding=10, color='red')
+            )
+            error_box.add(error_label)
+            self.content_area.add(error_box)
 
     # In main.py
 
@@ -162,15 +202,7 @@ class MainScreen:
         self.content_area.add(settlement_details_screen.layout)
 
 
-    def show_settlement_details(self, sender):
-        """Display the Settlement Details tab."""
-        self.clear_content_area()
-        settlement_details_screen = SettlementDetailsPage(
-            'settlement_details',
-            self.app,
-            self.layout  # Pass the main screen layout
-        )
-        self.content_area.add(settlement_details_screen.layout)
+
 
     def show_expenses(self, sender):
         """Display the Expenses tab."""
